@@ -68,13 +68,36 @@ Framebuffer framebuffer;
 
 Framebuffer* InitGOP(EFI_SYSTEM_TABLE* SystemTable) {
     EFI_GUID gopGuid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
-    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop = NULL;
     EFI_STATUS status;
 
-    status = SystemTable->BootServices->LocateProtocol(
-        &gopGuid, NULL, (void**)&gop);
-    if (EFI_ERROR(status)) {
+    /* Method 1: Try LocateHandleBuffer (works on VirtualBox) */
+    UINTN HandleCount = 0;
+    EFI_HANDLE* HandleBuffer = NULL;
+    status = SystemTable->BootServices->LocateHandleBuffer(
+        ByProtocol, &gopGuid, NULL, &HandleCount, &HandleBuffer);
+
+    if (!EFI_ERROR(status) && HandleCount > 0) {
+        /* Use the first handle that supports GOP */
+        status = SystemTable->BootServices->HandleProtocol(
+            HandleBuffer[0], &gopGuid, (void**)&gop);
+        if (EFI_ERROR(status)) {
+            gop = NULL;
+        }
+        SystemTable->BootServices->FreePool(HandleBuffer);
+    }
+
+    /* Method 2: Fallback to LocateProtocol (works on QEMU/OVMF) */
+    if (gop == NULL) {
+        status = SystemTable->BootServices->LocateProtocol(
+            &gopGuid, NULL, (void**)&gop);
+    }
+
+    if (gop == NULL || EFI_ERROR(status)) {
         Print(L"ERROR: Unable to locate Graphics Output Protocol\n");
+        Print(L"  Tried LocateHandleBuffer and LocateProtocol.\n");
+        Print(L"  VirtualBox: Set Graphics Controller to VBoxSVGA\n");
+        Print(L"  VirtualBox: Set Chipset to ICH9\n");
         return NULL;
     }
 
@@ -92,7 +115,8 @@ Framebuffer* InitGOP(EFI_SYSTEM_TABLE* SystemTable) {
     UINTN bestMode = gop->Mode->Mode;
     UINTN bestWidth = gop->Mode->Info->HorizontalResolution;
     for (UINTN i = 0; i < gop->Mode->MaxMode; i++) {
-        gop->QueryMode(gop, i, &SizeOfInfo, &info);
+        status = gop->QueryMode(gop, i, &SizeOfInfo, &info);
+        if (EFI_ERROR(status)) continue;
         if (info->HorizontalResolution >= 1024 &&
             info->HorizontalResolution <= 1920 &&
             info->HorizontalResolution > bestWidth) {
@@ -110,10 +134,10 @@ Framebuffer* InitGOP(EFI_SYSTEM_TABLE* SystemTable) {
         gop->Mode->FrameBufferBase,
         gop->Mode->FrameBufferSize);
 
-    framebuffer.BaseAddress      = (void*)gop->Mode->FrameBufferBase;
-    framebuffer.BufferSize       = gop->Mode->FrameBufferSize;
-    framebuffer.Width            = gop->Mode->Info->HorizontalResolution;
-    framebuffer.Height           = gop->Mode->Info->VerticalResolution;
+    framebuffer.BaseAddress       = (void*)gop->Mode->FrameBufferBase;
+    framebuffer.BufferSize        = gop->Mode->FrameBufferSize;
+    framebuffer.Width             = gop->Mode->Info->HorizontalResolution;
+    framebuffer.Height            = gop->Mode->Info->VerticalResolution;
     framebuffer.PixelsPerScanLine = gop->Mode->Info->PixelsPerScanLine;
 
     return &framebuffer;
