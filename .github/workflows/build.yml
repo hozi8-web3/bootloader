@@ -1,0 +1,109 @@
+name: Build & Release Orion OS
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gnu-efi mtools qemu-utils
+
+    - name: Build bootloader and kernel
+      run: make all
+
+    - name: Create FAT32 disk image
+      run: make image
+
+    - name: Convert to VDI (VirtualBox format)
+      run: |
+        qemu-img convert -f raw -O vdi build/fat.img build/OrionOS.vdi
+
+    - name: Convert to VMDK (VMware format)
+      run: |
+        qemu-img convert -f raw -O vmdk build/fat.img build/OrionOS.vmdk
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: OrionOS-images
+        path: |
+          build/fat.img
+          build/BOOTX64.EFI
+          build/kernel.elf
+          build/OrionOS.vdi
+          build/OrionOS.vmdk
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: OrionOS-images
+        path: release-files
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: "Orion OS ${{ github.ref_name }}"
+        body: |
+          ## Orion OS ${{ github.ref_name }}
+
+          A UEFI bootloader + graphical operating system for x86_64, built from scratch in C.
+
+          ### Downloads
+
+          | File | Description |
+          |------|-------------|
+          | `fat.img` | Raw FAT32 disk image (use with QEMU) |
+          | `OrionOS.vdi` | VirtualBox disk image (attach to VM with EFI enabled) |
+          | `OrionOS.vmdk` | VMware disk image |
+          | `BOOTX64.EFI` | Standalone UEFI bootloader binary |
+          | `kernel.elf` | Standalone kernel ELF binary |
+
+          ### Quick Start — VirtualBox
+          1. Download `OrionOS.vdi`
+          2. Create new VM → Type: Other → Version: Other/Unknown (64-bit)
+          3. Settings → System → ✅ Enable EFI
+          4. Settings → Storage → Add `OrionOS.vdi` as hard disk
+          5. Start the VM!
+
+          ### Quick Start — QEMU
+          ```bash
+          qemu-system-x86_64 \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
+            -drive if=pflash,format=raw,file=/usr/share/OVMF/OVMF_VARS.fd \
+            -drive format=raw,file=fat.img \
+            -m 256M -net none
+          ```
+        files: |
+          release-files/fat.img
+          release-files/BOOTX64.EFI
+          release-files/kernel.elf
+          release-files/OrionOS.vdi
+          release-files/OrionOS.vmdk
+        draft: false
+        prerelease: false
