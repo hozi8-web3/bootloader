@@ -84,8 +84,9 @@ void DrawVLine(int x, int y, int h, uint32_t color) {
 }
 
 void DrawChar(char c, int x, int y, uint32_t fg, uint32_t bg) {
-    if (c < 0 || c > 127) return;
-    uint8_t* glyph = font8x8_basic[(int)c];
+    unsigned char uc = (unsigned char)c;
+    if (uc > 127) return;
+    uint8_t* glyph = font8x8_basic[uc];
     for (int row = 0; row < 8; row++) {
         for (int col = 0; col < 8; col++) {
             if ((glyph[row] >> (7 - col)) & 1) {
@@ -109,8 +110,9 @@ void DrawString(const char* str, int x, int y, uint32_t fg, uint32_t bg) {
 void DrawStringScaled(const char* str, int x, int y, int scale, uint32_t fg, uint32_t bg) {
     int cx = x;
     while (*str) {
-        if (*str >= 0 && *str <= 127) {
-            uint8_t* glyph = font8x8_basic[(int)*str];
+        unsigned char uc = (unsigned char)*str;
+        if (uc <= 127) {
+            uint8_t* glyph = font8x8_basic[uc];
             for (int row = 0; row < 8; row++) {
                 for (int col = 0; col < 8; col++) {
                     uint32_t color = ((glyph[row] >> (7 - col)) & 1) ? fg : bg;

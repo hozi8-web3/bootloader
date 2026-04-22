@@ -2,12 +2,9 @@ ARCH            = x86_64
 BOOTLOADER_OBJS = bootloader/main.o
 BOOTLOADER_TARGET = build/BOOTX64.EFI
 
-KERNEL_OBJS     = kernel/main.o kernel/gdt.o kernel/graphics.o kernel/font.o kernel/string_impl.o
+KERNEL_OBJS     = kernel/main.o kernel/gdt.o kernel/graphics.o kernel/font.o \
+                  kernel/string_impl.o kernel/idt.o kernel/keyboard.o kernel/mouse.o
 KERNEL_TARGET   = build/kernel.elf
-
-# Interrupt handlers need __attribute__((interrupt)) which requires
-# different flags than -mgeneral-regs-only. We compile them separately.
-KERNEL_IRQ_OBJS = kernel/idt.o kernel/keyboard.o kernel/mouse.o
 
 # ---- gnu-efi paths (Ubuntu/Debian/WSL) ----
 EFIINC          = /usr/include/efi
@@ -29,14 +26,10 @@ LDFLAGS         = -nostdlib -znocombreloc -T $(EFI_LDS) -shared \
                   -Bsymbolic -L $(EFILIB) $(EFI_CRT_OBJS)
 
 # ---- Kernel flags ----
-# Base flags for kernel C files (no interrupt attribute allowed)
+# -mgeneral-regs-only: prevents GCC from using SSE/MMX in kernel code,
+# which is critical for __attribute__((interrupt)) handlers to work.
 KERNEL_CFLAGS   = -ffreestanding -mno-red-zone -fno-stack-protector \
                   -fno-pic -m64 -O2 -Wall -Wextra -mgeneral-regs-only
-
-# IRQ handler files use __attribute__((interrupt)) which needs SSE regs.
-# We remove -mgeneral-regs-only for these files.
-KERNEL_IRQ_CFLAGS = -ffreestanding -mno-red-zone -fno-stack-protector \
-                    -fno-pic -m64 -O2 -Wall -Wextra -mno-sse
 
 KERNEL_LDFLAGS  = -T kernel/linker.ld -nostdlib -z max-page-size=0x1000
 
@@ -74,24 +67,24 @@ kernel/graphics.o: kernel/graphics.c
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 kernel/font.o: kernel/font.c
-	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+	$(CC) $(KERNEL_CFLAGS) -Wno-override-init -c $< -o $@
 
 kernel/string_impl.o: kernel/string_impl.c
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-# ---- Kernel (interrupt handler files — different CFLAGS) ----
+# ---- Kernel (interrupt handler files) ----
 kernel/idt.o: kernel/idt.c
-	$(CC) $(KERNEL_IRQ_CFLAGS) -c $< -o $@
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 kernel/keyboard.o: kernel/keyboard.c
-	$(CC) $(KERNEL_IRQ_CFLAGS) -c $< -o $@
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 kernel/mouse.o: kernel/mouse.c
-	$(CC) $(KERNEL_IRQ_CFLAGS) -c $< -o $@
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 # ---- Link kernel ----
-$(KERNEL_TARGET): $(KERNEL_OBJS) $(KERNEL_IRQ_OBJS)
-	$(LD) $(KERNEL_LDFLAGS) -o $@ $(KERNEL_OBJS) $(KERNEL_IRQ_OBJS)
+$(KERNEL_TARGET): $(KERNEL_OBJS)
+	$(LD) $(KERNEL_LDFLAGS) -o $@ $(KERNEL_OBJS)
 
 # ---- Disk Image ----
 image: all
