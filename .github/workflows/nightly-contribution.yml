@@ -1,0 +1,51 @@
+name: Auto Contribution Workflow
+
+on:
+  schedule:
+    # Runs at 00:00 and 12:00 UTC every day. You can adjust the cron schedule as needed.
+    - cron: '0 0,12 * * *'
+  # Allows you to trigger it manually from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-commit:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gnu-efi mtools qemu-utils
+
+    - name: Build the OS
+      run: make all
+
+    - name: Update Build Log
+      run: |
+        echo "## Auto Build Log" > BUILD_LOG.md
+        echo "Last successful build ran at: $(date -u)" >> BUILD_LOG.md
+        echo "This file is updated automatically by GitHub Actions to confirm the system still compiles!" >> BUILD_LOG.md
+
+    - name: Commit and Push changes
+      run: |
+        # Use the exact Git username and email to guarantee green contribution squares!
+        git config --global user.name "Muhammad Hozaifa Ali"
+        git config --global user.email "hozaifabhojpur886@gmail.com"
+        
+        git add BUILD_LOG.md
+        
+        # Check if there are any changes to commit to avoid errors
+        if ! git diff-index --quiet HEAD --; then
+          git commit -m "chore: Automated build and validation log update"
+          git push origin main
+        else
+          echo "No changes to commit"
+        fi
